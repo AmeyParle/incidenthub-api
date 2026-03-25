@@ -107,7 +107,7 @@ Test endpoints directly from the browser using Swagger UI.
 ### 1. Clone the repository
 
 ```
-git clone <your-repo-url>
+git clone https://github.com/AmeyParle/incidenthub-api/
 cd incidenthub-api
 ```
 
