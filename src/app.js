@@ -9,7 +9,12 @@ const { swaggerServe, swaggerSetup } = require('./config/swagger');
 
 const app = express();
 
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: false
+  })
+);
+
 app.use(cors({
   origin: '*'
 }));
