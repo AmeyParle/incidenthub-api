@@ -1,0 +1,450 @@
+openapi: 3.0.3
+info:
+  title: IncidentHub API
+  version: 1.0.0
+  description: |
+    Production-style incident management API built with Node.js, Express, PostgreSQL, and Prisma.
+
+servers:
+  - url: http://localhost:5001/api
+    description: Local server
+
+tags:
+  - name: Auth
+  - name: Projects
+  - name: Tickets
+  - name: Comments
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+          example: Amey Parle
+        email:
+          type: string
+          example: amey@example.com
+        password:
+          type: string
+          example: Password123!
+        role:
+          type: string
+          enum: [ADMIN, AGENT, VIEWER]
+          example: ADMIN
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          example: amey@example.com
+        password:
+          type: string
+          example: Password123!
+
+    CreateProjectRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          example: IncidentHub Backend
+        description:
+          type: string
+          example: Main backend API for incident tracking
+
+    CreateTicketRequest:
+      type: object
+      required: [title, description, projectId]
+      properties:
+        title:
+          type: string
+          example: Login API returns 500
+        description:
+          type: string
+          example: Users receive internal server error while logging in.
+        status:
+          type: string
+          enum: [OPEN, IN_PROGRESS, RESOLVED, CLOSED]
+          example: OPEN
+        priority:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, CRITICAL]
+          example: HIGH
+        projectId:
+          type: integer
+          example: 1
+        assigneeId:
+          type: integer
+          example: 1
+
+    UpdateTicketRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          example: Login API returns 500 on invalid session
+        description:
+          type: string
+          example: Error happens when stale session cookies are present.
+        projectId:
+          type: integer
+          example: 1
+
+    AssignTicketRequest:
+      type: object
+      required: [assigneeId]
+      properties:
+        assigneeId:
+          type: integer
+          example: 1
+
+    UpdateStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [OPEN, IN_PROGRESS, RESOLVED, CLOSED]
+          example: IN_PROGRESS
+
+    UpdatePriorityRequest:
+      type: object
+      required: [priority]
+      properties:
+        priority:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, CRITICAL]
+          example: CRITICAL
+
+    AddCommentRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          example: Investigating this issue now.
+
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered successfully
+        '400':
+          description: Invalid request
+        '409':
+          description: User already exists
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+        '401':
+          description: Invalid credentials
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current logged-in user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user fetched successfully
+        '401':
+          description: Unauthorized
+
+  /projects:
+    post:
+      tags: [Projects]
+      summary: Create a project
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectRequest'
+      responses:
+        '201':
+          description: Project created successfully
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+    get:
+      tags: [Projects]
+      summary: Get all projects
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Projects fetched successfully
+        '401':
+          description: Unauthorized
+
+  /projects/{id}:
+    get:
+      tags: [Projects]
+      summary: Get project by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          example: 1
+      responses:
+        '200':
+          description: Project fetched successfully
+        '404':
+          description: Project not found
+
+  /tickets:
+    post:
+      tags: [Tickets]
+      summary: Create a ticket
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTicketRequest'
+      responses:
+        '201':
+          description: Ticket created successfully
+
+    get:
+      tags: [Tickets]
+      summary: Get all tickets with filters, search, sorting, and pagination
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [OPEN, IN_PROGRESS, RESOLVED, CLOSED]
+        - in: query
+          name: priority
+          schema:
+            type: string
+            enum: [LOW, MEDIUM, HIGH, CRITICAL]
+        - in: query
+          name: projectId
+          schema:
+            type: integer
+        - in: query
+          name: assigneeId
+          schema:
+            type: integer
+        - in: query
+          name: search
+          schema:
+            type: string
+        - in: query
+          name: sortBy
+          schema:
+            type: string
+            enum: [createdAt, updatedAt, priority, status, title]
+        - in: query
+          name: sortOrder
+          schema:
+            type: string
+            enum: [asc, desc]
+        - in: query
+          name: page
+          schema:
+            type: integer
+            example: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            example: 10
+      responses:
+        '200':
+          description: Tickets fetched successfully
+
+  /tickets/{id}:
+    get:
+      tags: [Tickets]
+      summary: Get ticket by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          example: 1
+      responses:
+        '200':
+          description: Ticket fetched successfully
+        '404':
+          description: Ticket not found
+
+    patch:
+      tags: [Tickets]
+      summary: Update ticket fields
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTicketRequest'
+      responses:
+        '200':
+          description: Ticket updated successfully
+
+  /tickets/{id}/assign:
+    patch:
+      tags: [Tickets]
+      summary: Assign or reassign a ticket
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignTicketRequest'
+      responses:
+        '200':
+          description: Ticket assigned successfully
+
+  /tickets/{id}/status:
+    patch:
+      tags: [Tickets]
+      summary: Update ticket status
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateStatusRequest'
+      responses:
+        '200':
+          description: Ticket status updated successfully
+
+  /tickets/{id}/priority:
+    patch:
+      tags: [Tickets]
+      summary: Update ticket priority
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePriorityRequest'
+      responses:
+        '200':
+          description: Ticket priority updated successfully
+
+  /tickets/{id}/comments:
+    post:
+      tags: [Comments]
+      summary: Add comment to ticket
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCommentRequest'
+      responses:
+        '201':
+          description: Comment added successfully
+
+    get:
+      tags: [Comments]
+      summary: Get comments for a ticket
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          example: 1
+      responses:
+        '200':
+          description: Comments fetched successfully
