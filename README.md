@@ -46,7 +46,6 @@ IncidentHub API is a production-style incident management backend built using No
 src/
   config/
   controllers/
-  docs/
   middleware/
   routes/
   utils/
@@ -55,6 +54,10 @@ src/
 
 prisma/
   schema.prisma
+
+docs/
+  openapi.yaml
+
 ```
 
 ---
