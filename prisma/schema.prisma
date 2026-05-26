@@ -87,3 +87,47 @@ model Comment {
   ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
+
+// ── AI Layer ──────────────────────────────────────────────────────────────────
+
+model PromptVersion {
+  id           Int      @id @default(autoincrement())
+  name         String   // e.g. "ticket_summarize", "suggest_resolution"
+  version      Int      @default(1)
+  isActive     Boolean  @default(false)
+  systemPrompt String   @db.Text
+  userTemplate String   @db.Text
+  modelId      String   @default("gpt-4o-mini")
+  maxTokens    Int      @default(512)
+  temperature  Float    @default(0.3)
+  notes        String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  logs LLMLog[]
+
+  @@unique([name, version])
+  @@index([name, isActive])
+}
+
+model LLMLog {
+  id              Int           @id @default(autoincrement())
+  promptVersion   PromptVersion @relation(fields: [promptVersionId], references: [id])
+  promptVersionId Int
+  ticketId        Int?
+  inputSnapshot   String        @db.Text
+  rawOutput       String        @db.Text
+  inputTokens     Int
+  outputTokens    Int
+  latencyMs       Int
+  scoreRelevance  Float?
+  scoreCoherence  Float?
+  scoreLengthOk   Float?
+  scoreOverall    Float?
+  evalStatus      String        @default("pending") // pending | passed | flagged
+  createdAt       DateTime      @default(now())
+
+  @@index([promptVersionId])
+  @@index([ticketId])
+  @@index([evalStatus])
+}

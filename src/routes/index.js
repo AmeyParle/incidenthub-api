@@ -4,6 +4,8 @@ const authRoutes = require('./auth.routes');
 const projectRoutes = require('./project.routes');
 const ticketRoutes = require('./ticket.routes');
 const commentRoutes = require('./comment.routes');
+const aiRoutes = require('./ai.routes');
+const { aiLimiter } = require('../middleware/rateLimiter.middleware');
 
 const router = express.Router();
 
@@ -34,5 +36,6 @@ router.use('/auth', authRoutes);
 router.use('/projects', projectRoutes);
 router.use('/tickets', ticketRoutes);
 router.use('/', commentRoutes);
+router.use('/ai', aiLimiter, aiRoutes);
 
 module.exports = router;
