@@ -4,16 +4,23 @@ info:
   version: 1.0.0
   description: |
     Production-style incident management API built with Node.js, Express, PostgreSQL, and Prisma.
+    Includes AI-powered ticket summarization, resolution playbooks, prompt versioning, and quality evaluation.
 
 servers:
+  - url: https://incidenthub-api.onrender.com/api
+    description: Production (Render)
   - url: http://localhost:5001/api
-    description: Local server
+    description: Local development
 
 tags:
   - name: Auth
   - name: Projects
   - name: Tickets
   - name: Comments
+  - name: AI
+    description: LLM-powered ticket analysis (summarize, suggest resolution)
+  - name: AI — Prompt Management
+    description: Prompt versioning, activation, and quality evaluation (ADMIN only)
 
 components:
   securitySchemes:
@@ -135,6 +142,131 @@ components:
           type: string
           example: Investigating this issue now.
 
+    TicketSummary:
+      type: object
+      properties:
+        headline:
+          type: string
+          example: API gateway returning 502 errors for all /checkout requests since 14:30 UTC
+        impact:
+          type: string
+          example: All paying customers unable to complete purchases — P1 severity
+        keyFacts:
+          type: array
+          items:
+            type: string
+          example:
+            - Errors began after deploy #381 at 14:28 UTC
+            - CPU on gateway pods spiked to 98%
+            - Rolling back did not restore service
+        suggestedNextStep:
+          type: string
+          example: Check gateway pod logs for OOM kills and scale horizontally
+
+    ResolutionPlaybook:
+      type: object
+      properties:
+        rootCauseSuspect:
+          type: string
+          example: Memory leak introduced in deploy #381 causing OOM on gateway pods
+        immediateActions:
+          type: array
+          items:
+            type: string
+          example:
+            - "kubectl rollout undo deployment/api-gateway"
+            - "kubectl scale deployment/api-gateway --replicas=6"
+            - "Notify #incidents Slack channel with current status"
+        investigationSteps:
+          type: array
+          items:
+            type: string
+          example:
+            - Compare heap dumps between v380 and v381 builds
+            - Review recent changes to middleware/request-parser.js
+        escalateTo:
+          type: string
+          example: "Platform lead (@jane) if not resolved in 30 min"
+        preventionNote:
+          type: string
+          example: Add heap-usage alert threshold and require load test for gateway changes
+
+    PromptVersionItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        version:
+          type: integer
+        isActive:
+          type: boolean
+        modelId:
+          type: string
+        maxTokens:
+          type: integer
+        temperature:
+          type: number
+        notes:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    EvalStats:
+      type: object
+      properties:
+        count:
+          type: integer
+        passRate:
+          type: number
+        avgScoreOverall:
+          type: number
+        avgScoreRelevance:
+          type: number
+        avgScoreCoherence:
+          type: number
+        avgLatencyMs:
+          type: integer
+        statusBreakdown:
+          type: object
+          properties:
+            passed:
+              type: integer
+            flagged:
+              type: integer
+            failed:
+              type: integer
+
+    LLMMetrics:
+      type: object
+      properties:
+        totalCalls:
+          type: integer
+        passRate:
+          type: number
+        avgLatencyMs:
+          type: integer
+        maxLatencyMs:
+          type: integer
+        totalInputTokens:
+          type: integer
+        totalOutputTokens:
+          type: integer
+        statusBreakdown:
+          type: object
+          properties:
+            passed:
+              type: integer
+            flagged:
+              type: integer
+            failed:
+              type: integer
+            pending:
+              type: integer
+
 paths:
   /auth/register:
     post:
@@ -150,7 +282,7 @@ paths:
         '201':
           description: User registered successfully
         '400':
-          description: Invalid request
+          description: Validation failed
         '409':
           description: User already exists
 
@@ -448,3 +580,266 @@ paths:
       responses:
         '200':
           description: Comments fetched successfully
+
+  # ── AI Endpoints ───────────────────────────────────────────────────────────
+
+  /ai/tickets/{id}/summarize:
+    post:
+      tags: [AI]
+      summary: Summarize a ticket with LLM
+      description: |
+        Generates a structured JSON summary of the ticket using the active
+        `ticket_summarize` prompt version. An eval score is computed and
+        persisted automatically. Use `?version=N` to pin a specific prompt
+        version for A/B testing.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          description: Ticket ID
+        - in: query
+          name: version
+          required: false
+          schema:
+            type: integer
+          description: Pin a specific prompt version (omit to use active version)
+      responses:
+        '200':
+          description: Summary generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      ticketId:
+                        type: integer
+                      promptName:
+                        type: string
+                      promptVersion:
+                        type: integer
+                      modelId:
+                        type: string
+                      logId:
+                        type: integer
+                      summary:
+                        $ref: '#/components/schemas/TicketSummary'
+        '404':
+          description: Ticket not found
+        '401':
+          description: Unauthorized
+        '429':
+          description: Rate limit exceeded
+
+  /ai/tickets/{id}/suggest-resolution:
+    post:
+      tags: [AI]
+      summary: Generate a resolution playbook
+      description: |
+        Uses the active `suggest_resolution` prompt to generate a structured
+        step-by-step resolution playbook for the incident ticket.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+        - in: query
+          name: version
+          required: false
+          schema:
+            type: integer
+          description: Pin a specific prompt version
+      responses:
+        '200':
+          description: Resolution playbook generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      ticketId:
+                        type: integer
+                      promptName:
+                        type: string
+                      promptVersion:
+                        type: integer
+                      modelId:
+                        type: string
+                      logId:
+                        type: integer
+                      playbook:
+                        $ref: '#/components/schemas/ResolutionPlaybook'
+        '404':
+          description: Ticket not found
+        '401':
+          description: Unauthorized
+        '429':
+          description: Rate limit exceeded
+
+  /ai/prompts/{name}/versions:
+    get:
+      tags: [AI — Prompt Management]
+      summary: List all versions of a named prompt
+      description: Returns all prompt versions for a given name, newest first. ADMIN only.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+            enum: [ticket_summarize, suggest_resolution]
+          description: Prompt name
+      responses:
+        '200':
+          description: Prompt versions listed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      promptName:
+                        type: string
+                      versions:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/PromptVersionItem'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden — ADMIN only
+
+  /ai/prompts/{name}/versions/{version}/activate:
+    patch:
+      tags: [AI — Prompt Management]
+      summary: Promote a prompt version to active
+      description: |
+        Atomically deactivates all other versions for this prompt name and
+        activates the specified version. ADMIN only.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: version
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Version activated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                    example: "Activated ticket_summarize v2. All other versions deactivated."
+        '400':
+          description: Version not found
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden — ADMIN only
+
+  /ai/prompts/{name}/eval-stats:
+    get:
+      tags: [AI — Prompt Management]
+      summary: Aggregate eval quality stats for a prompt
+      description: |
+        Returns pass rate, average scores, and latency metrics across all
+        evaluated LLM log entries for the given prompt name. ADMIN only.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Eval stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      promptName:
+                        type: string
+                      stats:
+                        $ref: '#/components/schemas/EvalStats'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden — ADMIN only
+
+  /ai/metrics:
+    get:
+      tags: [AI — Prompt Management]
+      summary: LLM usage metrics
+      description: |
+        Returns call volume, pass rate, latency, and token usage across all
+        LLM calls. ADMIN only.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: LLM metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/LLMMetrics'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden — ADMIN only
